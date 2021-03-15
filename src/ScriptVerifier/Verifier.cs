@@ -1,10 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Runtime;
-using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -20,26 +16,34 @@ namespace ScriptVerifier
     {
         private readonly ICompilerSetup _setup;
 
+        private List<PortableExecutableReference> _references;
+
         public Verifier(ICompilerSetup setup)
         {
             _setup = setup;
         }
 
-        public VerificationResult Verify(string script, bool throwOnFirstError = true)
+        public bool ThrowOnFirstError { get; set; } = true;
+
+        public VerificationResult Verify(string script)
         {
-            var assemblyReferences = _setup.GetReferencedAssemblyPaths();
-            var references = assemblyReferences
-                .Select(x => MetadataReference.CreateFromFile(x))
-                .ToList();
+            if (_references == null)
+            {
+                var assemblyReferences = _setup.GetReferencedAssemblyPaths();
+                _references = assemblyReferences
+                    .Select(x => MetadataReference.CreateFromFile(x))
+                    .ToList();
+            }
 
             var syntaxTree = CSharpSyntaxTree.ParseText(script);
+
             var options = new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: _setup.AllowUnsafeCode);
             var compilation = CSharpCompilation.Create(
-                "ScriptVerification",
+                "ScriptVerification_" + Guid.NewGuid(),
                 new[] {syntaxTree},
-                references,
+                _references,
                 options);
 
             var semanticModel = compilation.GetSemanticModel(syntaxTree, false);
@@ -49,57 +53,29 @@ namespace ScriptVerifier
                 .ToList();
             if (errors.Any())
             {
-                var message = string.Join(Environment.NewLine, allDiagnostics);
-                throw new ScriptVerificationException(message);
+                var errorMessages = errors.Select(x => x.ToString());
+                ThrowVerificationException(errorMessages);
             }
 
             var allowedTypesNames = new HashSet<string>(_setup.GetAllowedTypeNames());
-
             var internalTypes = GetInternalTypes(compilation.Assembly.GlobalNamespace);
             foreach (var internalType in internalTypes)
                 allowedTypesNames.Add(GetFullName(internalType));
 
-            var result = new VerificationResult();
-            VerifyDeclarations(semanticModel, allowedTypesNames, result, throwOnFirstError);
-            VerifyMethodCalls(semanticModel, allowedTypesNames, result, throwOnFirstError);
-            return result;
+            var verificationResult = new VerificationResult();
+            VerifyDeclarations(semanticModel, allowedTypesNames, verificationResult);
+            VerifyMethodCalls(semanticModel, allowedTypesNames, verificationResult);
+
+            if (!ThrowOnFirstError && verificationResult.HasError)
+                ThrowVerificationException(verificationResult.Errors);
+
+            return verificationResult;
         }
 
-        public void Compile(string script, bool throwOnFirstError = true)
-        {
-            var returnTypeAsString = GetCSharpRepresentation(typeof(T), true);
-            var outerClass = StandardHeader + $"public static class Wrapper {{ public static {returnTypeAsString} expr = {lambda}; }}";
-
-            var compilation = CSharpCompilation.Create("FilterCompiler_" + Guid.NewGuid(),
-                new[] { CSharpSyntaxTree.ParseText(outerClass) },
-                References,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
-
-            using var assemblyLoadContext = new CollectibleAssemblyLoadContext();
-            using var ms = new MemoryStream();
-
-            var cr = compilation.Emit(ms);
-            if (!cr.Success)
-            {
-                throw new InvalidOperationException("Error in expression: " + cr.Diagnostics.First(e =>
-                    e.Severity == DiagnosticSeverity.Error).GetMessage());
-            }
-
-            ms.Seek(0, SeekOrigin.Begin);
-            var assembly = assemblyLoadContext.LoadFromStream(ms);
-
-            var outerClassType = assembly.GetType("Wrapper");
-
-            var exprField = outerClassType.GetField("expr", BindingFlags.Public | BindingFlags.Static);
-            // ReSharper disable once PossibleNullReferenceException
-            return (T)exprField.GetValue(null);
-        }
-
-        private static void VerifyDeclarations(
+        private void VerifyDeclarations(
             SemanticModel model,
             ISet<string> allowedTypeNames,
-            VerificationResult verificationResult,
-            bool throwOnFirstError)
+            VerificationResult verificationResult)
         {
             var variableDeclarations = model.SyntaxTree.GetRoot()
                 .DescendantNodes()
@@ -108,43 +84,18 @@ namespace ScriptVerifier
             {
                 var symbolInfo = ModelExtensions.GetSymbolInfo(model, variableDeclaration.Type);
                 var symbol = symbolInfo.Symbol;
-                var relevantType = GetRelevantType(symbol);                
+                var relevantType = GetRelevantType(symbol);
                 VerifyType(relevantType,
                     variableDeclaration,
                     allowedTypeNames,
-                    verificationResult,
-                    throwOnFirstError);
+                    verificationResult);
             }
         }
 
-        private static ISymbol GetRelevantType(ISymbol symbol)
-        {
-            switch (symbol)
-            {
-                case IPointerTypeSymbol pointer:
-                {
-                    return pointer.PointedAtType;
-                }
-                case IArrayTypeSymbol arrayType:
-                {
-                    return arrayType.ElementType;
-                }
-
-                case ISymbol variableType:
-                {
-                    return variableType;
-                }
-
-                default:
-                    return null;
-            }
-        }
-
-        private static void VerifyMethodCalls(
+        private void VerifyMethodCalls(
             SemanticModel model,
             ISet<string> allowedTypeNames,
-            VerificationResult verificationResult,
-            bool throwOnFirstError)
+            VerificationResult verificationResult)
         {
             var invocationExpressions = model.SyntaxTree.GetRoot()
                 .DescendantNodes()
@@ -158,31 +109,32 @@ namespace ScriptVerifier
                     invokedType,
                     invocationExpression,
                     allowedTypeNames,
-                    verificationResult,
-                    throwOnFirstError);
+                    verificationResult);
             }
         }
 
-        private static void VerifyType(
+        private void VerifyType(
             ISymbol type,
             CSharpSyntaxNode variableDeclaration,
             ISet<string> allowedTypeNames,
-            VerificationResult result,
-            bool throwOnFirstError)
+            VerificationResult result)
         {
             var variableTypeName = "Unknown";
             if (type != null)
             {
                 variableTypeName = GetFullName(type);
-                if (IsAllowed(variableTypeName, allowedTypeNames))
+                if (IsTypeAllowed(variableTypeName, allowedTypeNames))
                     return;
             }
 
             var message = CreateVerifyExceptionMessage(variableTypeName, variableDeclaration);
-            AddToResult(message, result, throwOnFirstError);
+            if (ThrowOnFirstError)
+                throw new ScriptVerificationException(message);
+
+            result.AddError(message);
         }
 
-        private static bool IsAllowed(
+        private static bool IsTypeAllowed(
             string typeName,
             ISet<string> allowedNamesOrNamespaces)
         {
@@ -215,22 +167,17 @@ namespace ScriptVerifier
         private static string GetFullName(ISymbol symbol)
         {
             var parts = symbol.ContainingType?.ToDisplayParts() ?? symbol.ContainingNamespace.ToDisplayParts();
-
-            var sb = new StringBuilder();
-            foreach (var part in parts)
-                sb.Append(part);
-
-            sb.Append(".");
-            sb.Append(symbol.MetadataName);
-            return sb.ToString();
+            return $"{string.Join("", parts)}.{symbol.MetadataName}";
         }
 
-        private static void AddToResult(string message, VerificationResult result, bool throwOnFirstError)
+        private static ISymbol GetRelevantType(ISymbol symbol)
         {
-            if (throwOnFirstError)
-                throw new ScriptVerificationException(message);
-
-            result.AddError(message);
+            return symbol switch
+            {
+                IPointerTypeSymbol pointer => pointer.PointedAtType,
+                IArrayTypeSymbol arrayType => arrayType.ElementType,
+                _ => symbol
+            };
         }
 
         private static string CreateVerifyExceptionMessage(string invokeType, CSharpSyntaxNode invocationSyntax)
@@ -239,20 +186,10 @@ namespace ScriptVerifier
                 $"Not allowed type '{invokeType}' used at location '{invocationSyntax.GetLocation().GetLineSpan()}''";
         }
 
-        private class CollectibleAssemblyLoadContext : AssemblyLoadContext, IDisposable
+        private static void ThrowVerificationException(IEnumerable<string> errors)
         {
-            public CollectibleAssemblyLoadContext() : base(true)
-            { }
-
-            protected override Assembly Load(AssemblyName assemblyName)
-            {
-                return null;
-            }
-
-            public void Dispose()
-            {
-                Unload();
-            }
+            var message = string.Join(Environment.NewLine, errors);
+            throw new ScriptVerificationException(message);
         }
     }
 }

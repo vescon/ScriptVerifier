@@ -56,6 +56,24 @@ int? i = 42;
         }
 
         [TestMethod]
+        public void GivenScriptWithIntList_WhenOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldBeOk()
+        {
+            // Arrange
+            var script = @"
+using System.Collections.Generic;
+
+var list = new List<int> {1, 2, 3,};
+";
+
+            // Act
+            var verifier = new Verifier(new DefaultCompilerSetup());
+            Action call = () => verifier.Verify(script);
+
+            // Assert
+            call.Should().NotThrow();
+        }
+
+        [TestMethod]
         public void GivenMaliciousReflectionScript_WhenOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldFail()
         {
             // Arrange

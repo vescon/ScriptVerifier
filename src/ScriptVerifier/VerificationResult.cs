@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 
 namespace ScriptVerifier
 {
@@ -9,6 +10,7 @@ namespace ScriptVerifier
             Errors.Add(error);
         }
 
-        public List<string> Errors { get; } = new List<string>();
+        public List<string> Errors { get; } = new();
+        public bool HasError => Errors.Any();
     }
 }   
