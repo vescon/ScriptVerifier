@@ -34,6 +34,9 @@ namespace ScriptVerifier
             foreach (var type in types)
             {
                 var fullTypeName = GetFullTypeName(type);
+                if (fullTypeName == null)
+                    continue;
+
                 AddAllowedType(fullTypeName);
 
                 if (addDependentAssemblies)
@@ -57,13 +60,14 @@ namespace ScriptVerifier
                 .Where(x => !string.IsNullOrEmpty(x));
         }
 
-        private static string GetFullTypeName(Type type)
+        private static string? GetFullTypeName(Type type)
         {
             var name = type.FullName;
             return string.IsNullOrEmpty(name)
                 ? null
                 : name.Replace("+", "."); // support nested classes
         }
+
 
         public IEnumerable<string> GetReferencedAssemblyPaths()
         {

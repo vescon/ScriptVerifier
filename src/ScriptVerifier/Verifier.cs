@@ -16,7 +16,7 @@ namespace ScriptVerifier
     {
         private readonly ICompilerSetup _setup;
 
-        private List<PortableExecutableReference> _references;
+        private List<PortableExecutableReference>? _references;
 
         public Verifier(ICompilerSetup setup)
         {
@@ -85,7 +85,8 @@ namespace ScriptVerifier
                 var symbolInfo = ModelExtensions.GetSymbolInfo(model, variableDeclaration.Type);
                 var symbol = symbolInfo.Symbol;
                 var relevantType = GetRelevantType(symbol);
-                VerifyType(relevantType,
+                VerifyType(
+                    relevantType,
                     variableDeclaration,
                     allowedTypeNames,
                     verificationResult);
@@ -114,7 +115,7 @@ namespace ScriptVerifier
         }
 
         private void VerifyType(
-            ISymbol type,
+            ISymbol? type,
             CSharpSyntaxNode variableDeclaration,
             ISet<string> allowedTypeNames,
             VerificationResult result)
@@ -170,7 +171,7 @@ namespace ScriptVerifier
             return $"{string.Join("", parts)}.{symbol.MetadataName}";
         }
 
-        private static ISymbol GetRelevantType(ISymbol symbol)
+        private static ISymbol? GetRelevantType(ISymbol? symbol)
         {
             return symbol switch
             {
