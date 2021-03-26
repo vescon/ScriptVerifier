@@ -25,12 +25,11 @@ Verifies that a C# code uses only permitted types and assemblies
 ```csharp
 using System;
 
-
 namespace ScriptVerifier.Sample
 {
-    class Program
+    public class Program
     {
-        static void Main(string[] args)
+        public static void Main()
         {
             TestMaliciousScript();
             TestScriptWithPermittedTypes();
@@ -66,14 +65,14 @@ Console.WriteLine(""Result was: "" + i);
 ";
 
             var compilerSetup = new DefaultCompilerSetup();
-            compilerSetup.AddAllowedType(typeof(Console), true);
+            compilerSetup.AddAllowedType(typeof(Console));
             
             RunVerification(script, compilerSetup);
 
             // OK
         }
 
-        private static void RunVerification(string script, DefaultCompilerSetup compilerSetup)
+        private static void RunVerification(string script, ICompilerSetup compilerSetup)
         {
             try
             {
@@ -89,5 +88,6 @@ Console.WriteLine(""Result was: "" + i);
         }
     }
 }
+
 
 ```
