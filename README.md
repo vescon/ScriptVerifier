@@ -1,22 +1,20 @@
 [![.github/workflows/main.yaml](https://github.com/vescon/ScriptVerifier/actions/workflows/main.yaml/badge.svg?branch=main)](https://github.com/vescon/ScriptVerifier/actions/workflows/main.yaml)
 [![NuGet](https://img.shields.io/nuget/v/ScriptVerifier.svg)](https://www.nuget.org/packages/ScriptVerifier/)
 
-
-
-
 # ScriptVerifier
 Verifies that a C# code uses only permitted types and assemblies
 
 
 ## Supported features
-- Specify type names as strings
-- Specify referenced assembly names via file location
+- Specify allowed types as type name strings
+- Specify allowed type names as regex pattern
+- Specify referenced assemblies via file paths
 
 ## Quickstart
 
 1. Install the ScriptVerifier NuGet package (`Install-Package ScriptVerifier`)
-2. Configure a CompilerSetup.
-3. Verify C# code with "Verifier"
+2. Configure a the ICompilerSetup.
+3. Verify C# code with "Verifier.Verify()"
 
 ## Sample
 
