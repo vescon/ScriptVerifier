@@ -8,17 +8,8 @@ namespace ScriptVerifier
 {
     public class DefaultCompilerSetup : CompilerSetup
     {
-        private static readonly List<Assembly> DefaultAllowedAssemblies =
-            new List<Assembly>
-            {
-                typeof(string).Assembly,
-                typeof(object).Assembly, // "mscorlib.dll"
-                typeof(Uri).Assembly, // "System.dll"
-                typeof(Enumerable).Assembly, // "System.Core.dll"
-            };
-
         private static readonly List<Type> DefaultAllowedTypes =
-            new List<Type>
+            new()
             {
                 typeof(object),
                 typeof(bool),
@@ -85,10 +76,16 @@ namespace ScriptVerifier
                 typeof(ParallelEnumerable)
             };
 
+        private static readonly List<Assembly> DefaultAllowedAssemblies =
+            DefaultAllowedTypes
+                .Select(x => x.Assembly)
+                .Distinct()
+                .ToList();
+
         public DefaultCompilerSetup()
         {
-            AddReferencedAssemblies(DefaultAllowedAssemblies);
             AddAllowedTypes(DefaultAllowedTypes, true);
+            AddReferencedAssemblies(DefaultAllowedAssemblies);
         }
     }
 }
