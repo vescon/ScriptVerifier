@@ -28,6 +28,11 @@ namespace ScriptVerifier
             AllowedTypeNames.Add(typeName);
         }
 
+        public void AddAllowedType(Type type, bool addDependentAssemblies)
+        {
+            AddAllowedTypes(new List<Type> { type }, addDependentAssemblies);
+        }
+
         public void AddAllowedTypes(List<Type> types, bool addDependentAssemblies)
         {
             var assembliesToResolve = new HashSet<Assembly>();
