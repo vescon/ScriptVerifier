@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace ScriptVerifier
 {
@@ -7,6 +8,7 @@ namespace ScriptVerifier
         bool AllowUnsafeCode { get; }
 
         IEnumerable<string> GetReferencedAssemblyPaths();
-        IEnumerable<string> GetAllowedTypeNames();
+        IEnumerable<string> GetAllowedTypes();
+        IEnumerable<Regex> GetAllowedTypePatterns();
     }
 }

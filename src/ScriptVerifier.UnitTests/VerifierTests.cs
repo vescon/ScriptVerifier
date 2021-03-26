@@ -74,11 +74,32 @@ var list = new List<int> {1, 2, 3,};
         }
 
         [TestMethod]
+        public void GivenScriptWithType_AndTypePatternIsAllowed_ThenTheVerificationShouldBeOk()
+        {
+            // Arrange
+            var script = @"
+using System;
+
+var t = typeof(int);
+var name = AppDomain.CurrentDomain.FriendlyName;
+";
+
+            // Act
+            var compilerSetup = new DefaultCompilerSetup();
+            compilerSetup.AddAllowedTypePattern("^System");
+            var verifier = new Verifier(compilerSetup);
+            Action call = () => verifier.Verify(script);
+
+            // Assert
+            call.Should().NotThrow();
+        }
+
+        [TestMethod]
         public void GivenMaliciousReflectionScript_WhenOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldFail()
         {
             // Arrange
             var script = @"
-var fileClass = Type.GetType(""System.IO.File, System.IO.FileSystem, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a"");
+var fileClass = Type.GetType(""System.IO.File, System.IO.FileSystem"");
 var method = fileClass.GetMethod(""Exists"");
 var exist = (bool)method.Invoke(null, new object[] {@""d:\passwd.txt""});
 // no do something malicious ...

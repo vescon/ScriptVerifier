@@ -41,14 +41,14 @@ Console.WriteLine(""Result was: "" + i);
 ";
 
             var compilerSetup = new DefaultCompilerSetup();
-            compilerSetup.AddAllowedType(typeof(Console), true);
+            compilerSetup.AddAllowedType(typeof(Console));
             
             RunVerification(script, compilerSetup);
 
             // OK
         }
 
-        private static void RunVerification(string script, DefaultCompilerSetup compilerSetup)
+        private static void RunVerification(string script, ICompilerSetup compilerSetup)
         {
             try
             {

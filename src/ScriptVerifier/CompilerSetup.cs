@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace ScriptVerifier
 {
@@ -10,7 +11,8 @@ namespace ScriptVerifier
         public bool AllowUnsafeCode { get; set; }
 
         public ISet<string> ReferencedAssemblyPaths { get; } = new HashSet<string>();
-        public ISet<string> AllowedTypeNames { get; } = new HashSet<string>();
+        public ISet<string> AllowedTypes { get; } = new HashSet<string>();
+        public List<Regex> AllowedTypePatterns { get; } = new();
 
         public void AddReferencedAssembly(string assemblyPath)
         {
@@ -23,17 +25,28 @@ namespace ScriptVerifier
                 AddReferencedAssembly(assembly);
         }
 
-        public void AddAllowedType(string typeName)
+        public void AddAllowedTypePattern(Regex regex)
         {
-            AllowedTypeNames.Add(typeName);
+            AllowedTypePatterns.Add(regex);
+        }
+        
+        public void AddAllowedTypePattern(string fullTypeNameRegex)
+        {
+            var regEx = new Regex(fullTypeNameRegex, RegexOptions.Singleline);
+            AddAllowedTypePattern(regEx);
         }
 
-        public void AddAllowedType(Type type, bool addDependentAssemblies)
+        public void AddAllowedType(string fullTypeName)
         {
-            AddAllowedTypes(new List<Type> { type }, addDependentAssemblies);
+            AllowedTypes.Add(fullTypeName);
         }
 
-        public void AddAllowedTypes(List<Type> types, bool addDependentAssemblies)
+        public void AddAllowedType(Type type, bool resolveAndAddDependentAssemblies = true)
+        {
+            AddAllowedTypes(new List<Type> { type }, resolveAndAddDependentAssemblies);
+        }
+
+        public void AddAllowedTypes(List<Type> types, bool resolveAndAddDependentAssemblies = true)
         {
             var assembliesToResolve = new HashSet<Assembly>();
             foreach (var type in types)
@@ -44,17 +57,17 @@ namespace ScriptVerifier
 
                 AddAllowedType(fullTypeName);
 
-                if (addDependentAssemblies)
+                if (resolveAndAddDependentAssemblies)
                     assembliesToResolve.Add(type.Assembly);
             }
 
-            if (assembliesToResolve.Any())
-            {
-                var dependentAssemblies = assembliesToResolve
-                    .SelectMany(x => x.ResolveDependencies(true))
-                    .ToList();
-                AddReferencedAssemblies(dependentAssemblies);
-            }
+            if (!assembliesToResolve.Any()) 
+                return;
+
+            var dependentAssemblies = assembliesToResolve
+                .SelectMany(x => x.ResolveDependencies(true))
+                .ToList();
+            AddReferencedAssemblies(dependentAssemblies);
         }
 
         private static IEnumerable<string> GetValidAssemblyPaths(IEnumerable<Assembly> assemblies)
@@ -79,9 +92,14 @@ namespace ScriptVerifier
             return ReferencedAssemblyPaths;
         }
 
-        public IEnumerable<string> GetAllowedTypeNames()
+        public IEnumerable<string> GetAllowedTypes()
         {
-            return AllowedTypeNames;
+            return AllowedTypes;
+        }
+
+        public IEnumerable<Regex> GetAllowedTypePatterns()
+        {
+            return AllowedTypePatterns;
         }
     }
 }

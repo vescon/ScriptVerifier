@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -57,14 +58,15 @@ namespace ScriptVerifier
                 ThrowVerificationException(errorMessages);
             }
 
-            var allowedTypesNames = new HashSet<string>(_setup.GetAllowedTypeNames());
+            var allowedTypePatterns = _setup.GetAllowedTypePatterns().ToList();
+
+            var allowedTypes = new HashSet<string>(_setup.GetAllowedTypes());
             var internalTypes = GetInternalTypes(compilation.Assembly.GlobalNamespace);
             foreach (var internalType in internalTypes)
-                allowedTypesNames.Add(GetFullName(internalType));
+                allowedTypes.Add(GetFullName(internalType));
 
             var verificationResult = new VerificationResult();
-            VerifyDeclarations(semanticModel, allowedTypesNames, verificationResult);
-            VerifyMethodCalls(semanticModel, allowedTypesNames, verificationResult);
+            Verify(semanticModel, allowedTypes, allowedTypePatterns, verificationResult);
 
             if (!ThrowOnFirstError && verificationResult.HasError)
                 ThrowVerificationException(verificationResult.Errors);
@@ -72,79 +74,70 @@ namespace ScriptVerifier
             return verificationResult;
         }
 
-        private void VerifyDeclarations(
-            SemanticModel model,
-            ISet<string> allowedTypeNames,
+        private void Verify(
+            SemanticModel semanticModel,
+            ISet<string> allowedTypes,
+            List<Regex> allowedTypePatterns,
             VerificationResult verificationResult)
         {
-            var variableDeclarations = model.SyntaxTree.GetRoot()
+            var syntaxNodes = semanticModel.SyntaxTree
+                .GetRoot()
                 .DescendantNodes()
-                .OfType<VariableDeclarationSyntax>();
-            foreach (var variableDeclaration in variableDeclarations)
+                .OfType<CSharpSyntaxNode>();
+            foreach (var syntaxNode in syntaxNodes)
             {
-                var symbolInfo = ModelExtensions.GetSymbolInfo(model, variableDeclaration.Type);
-                var symbol = symbolInfo.Symbol;
-                var relevantType = GetRelevantType(symbol);
-                VerifyType(
-                    relevantType,
-                    variableDeclaration,
-                    allowedTypeNames,
-                    verificationResult);
-            }
-        }
+                var type = GetType(semanticModel, syntaxNode);
+                if (type == null)
+                    continue;
 
-        private void VerifyMethodCalls(
-            SemanticModel model,
-            ISet<string> allowedTypeNames,
-            VerificationResult verificationResult)
-        {
-            var invocationExpressions = model.SyntaxTree.GetRoot()
-                .DescendantNodes()
-                .OfType<InvocationExpressionSyntax>();
-            foreach (var invocationExpression in invocationExpressions)
-            {
-                var symbolInfo = ModelExtensions.GetSymbolInfo(model, invocationExpression);
-                var invokedSymbol = symbolInfo.Symbol;
-                var invokedType = invokedSymbol?.ContainingType;
-                VerifyType(
-                    invokedType,
-                    invocationExpression,
-                    allowedTypeNames,
-                    verificationResult);
+                VerifyType(type, syntaxNode, allowedTypes, allowedTypePatterns, verificationResult);
             }
         }
 
         private void VerifyType(
-            ISymbol? type,
-            CSharpSyntaxNode variableDeclaration,
-            ISet<string> allowedTypeNames,
+            ISymbol type,
+            CSharpSyntaxNode syntaxNode,
+            ISet<string> allowedTypes,
+            List<Regex> allowedTypePatterns,
             VerificationResult result)
         {
-            var variableTypeName = "Unknown";
-            if (type != null)
-            {
-                variableTypeName = GetFullName(type);
-                if (IsTypeAllowed(variableTypeName, allowedTypeNames))
-                    return;
-            }
+            var typeName = GetFullName(type);
+            if (IsTypeAllowed(typeName, allowedTypes, allowedTypePatterns))
+                return;
 
-            var message = CreateVerifyExceptionMessage(variableTypeName, variableDeclaration);
+            var message = CreateVerifyExceptionMessage(typeName, syntaxNode);
             if (ThrowOnFirstError)
                 throw new ScriptVerificationException(message);
 
             result.AddError(message);
         }
 
+        private static ISymbol? GetType(SemanticModel semanticModel, CSharpSyntaxNode syntaxNode)
+        {
+            switch (syntaxNode)
+            {
+                case VariableDeclarationSyntax variableDeclaration:
+                    var symbolInfo = ModelExtensions.GetSymbolInfo(semanticModel, variableDeclaration.Type);
+                    var symbol = symbolInfo.Symbol;
+                    return GetRelevantType(symbol);
+
+                case InvocationExpressionSyntax invocationExpression:
+                    var symbolInfo1 = ModelExtensions.GetSymbolInfo(semanticModel, invocationExpression);
+                    var invokedSymbol = symbolInfo1.Symbol;
+                    return invokedSymbol?.ContainingType;
+
+                default:
+                    return null;
+            }
+        }
+
         private static bool IsTypeAllowed(
             string typeName,
-            ISet<string> allowedNamesOrNamespaces)
+            ISet<string> allowedTypes,
+            IEnumerable<Regex> allowedTypePatterns)
         {
-            if (allowedNamesOrNamespaces.Contains(typeName))
-                return true;
-
-            return allowedNamesOrNamespaces
-                .Where(x => x.EndsWith("*"))
-                .Any(x => typeName.StartsWith(x.TrimEnd('*')));
+            return allowedTypes.Contains(typeName)
+                   || allowedTypePatterns.Any(x => x.IsMatch(typeName));
         }
 
         private static IEnumerable<INamedTypeSymbol> GetInternalTypes(INamespaceSymbol namespaceSymbol)
@@ -181,10 +174,10 @@ namespace ScriptVerifier
             };
         }
 
-        private static string CreateVerifyExceptionMessage(string invokeType, CSharpSyntaxNode invocationSyntax)
+        private static string CreateVerifyExceptionMessage(string invokeType, CSharpSyntaxNode syntaxNode)
         {
             return
-                $"Not allowed type '{invokeType}' used at location '{invocationSyntax.GetLocation().GetLineSpan()}''";
+                $"Not allowed type '{invokeType}' used at location '{syntaxNode.GetLocation().GetLineSpan()}''";
         }
 
         private static void ThrowVerificationException(IEnumerable<string> errors)
