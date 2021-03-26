@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using FluentAssertions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -228,8 +229,7 @@ var a = new Type[1];
         }
 
         [TestMethod]
-        public void
-            GivenUnsafeScript_WhenUnsafeCodeIsNotAllowedAndOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldFail()
+        public void GivenUnsafeScript_WhenUnsafeCodeIsNotAllowedAndOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldFail()
         {
             // Arrange
             var script = @"
@@ -251,8 +251,7 @@ unsafe
         }
 
         [TestMethod]
-        public void
-            GivenUnsafeScript_WhenUnsafeCodeIsAllowedAndOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldBeOk()
+        public void GivenUnsafeScript_WhenUnsafeCodeIsAllowedAndOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldBeOk()
         {
             // Arrange
             var script = @"
@@ -271,6 +270,64 @@ unsafe
 
             // Assert
             call.Should().NotThrow();
+        }
+
+        [TestMethod]
+        public void GivenScriptWithLinqQuery_WhenOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldBeOk()
+        {
+            // Arrange
+            var script = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+var numbers = new List<int> {1, 2, 3, 4, 5};
+var result = numbers
+    .Where(x => x > 3)
+    .ToList();
+";
+
+            // Act
+            var compilerSetup = new DefaultCompilerSetup();
+            var verifier = new Verifier(compilerSetup);
+            Action call = () => verifier.Verify(script);
+
+            // Assert
+            call.Should().NotThrow();
+        }
+
+        [TestMethod]
+        public void GivenScriptWithMaliciousLinqQuery_WhenOnlyDefaultAssembliesAreAllowed_ThenTheVerificationShouldFail()
+        {
+            // Arrange
+            var script = @"
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+var numbers = new List<int> { 1, 2, 3, 4, 5 };
+var result = numbers
+    .Where(x =>
+    {
+        var fileClass = Type.GetType(""System.IO.File, System.IO.FileSystem"");
+        var method = fileClass!.GetMethod(""Exists"");
+        var methodResult = method!.Invoke(null, new object[] { @""d:\passwd.txt""});
+        var exist = (bool)methodResult!;
+        // no do something malicious ...
+
+        return x > 3;
+    })
+    .ToList();
+";
+
+            // Act
+            var compilerSetup = new DefaultCompilerSetup();
+            var verifier = new Verifier(compilerSetup);
+            Action call = () => verifier.Verify(script);
+
+            // Assert
+            call.Should().Throw<ScriptVerificationException>()
+                .WithMessage("Not allowed type 'System.Type' used at location ': (9,8)-(9,76)''");
         }
 
         private class EmptyCompilerSetup : CompilerSetup
